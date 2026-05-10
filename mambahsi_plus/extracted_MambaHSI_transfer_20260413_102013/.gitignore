@@ -1,0 +1,46 @@
+# Conda / micromamba environments
+env/
+env311/
+env*/
+.env/
+.conda/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+
+# Wheel files (too large, download from PyPI instead)
+*.whl
+
+# Model checkpoints (too large for git)
+*.pth
+*.pt
+
+# Extracted model checkpoints / outputs
+extracted_ckpt/
+*.tar.gz
+*.zip
+
+# Experiment outputs
+RUNS/
+RUNS_cmp_*/
+RUNS_label2_*/
+
+# Data files (too large for git)
+data/
+
+# Tools
+.tools/micromamba/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
