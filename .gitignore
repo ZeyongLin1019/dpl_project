@@ -15,7 +15,9 @@ dist/
 *.whl
 
 # Extracted model checkpoints / outputs
-extracted_*/
+extracted_ckpt/
+*.tar.gz
+*.zip
 
 # Tools
 .tools/micromamba/
