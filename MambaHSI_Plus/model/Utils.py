@@ -71,10 +71,10 @@ class SpeMambaProcessor(nn.Module):
 
 class SpatialGuidedSpectralFusion(nn.Module):
     """
-    Spatial-to-Spectral Gate (Im2State-inspired cross-state fusion).
+    S2S Fusion V2: dual-branch control gate.
 
-    Uses spatial branch features to generate control weights that modulate
-    spectral branch features, then projects the result.
+    Control weights are generated from concatenated spatial and spectral
+    features, then modulate the spectral branch output via a learnable alpha.
 
     Input:  f_spa [B, C, H, W], f_spe [B, C, H, W]
     Output: f_spe_guided [B, C, H, W]
@@ -82,19 +82,26 @@ class SpatialGuidedSpectralFusion(nn.Module):
     def __init__(self, channels, reduction=4):
         super().__init__()
         hidden_dim = max(1, channels // reduction)
-        self.spa_to_gate = nn.Sequential(
-            nn.Conv2d(channels, hidden_dim, kernel_size=1),
+        self.control = nn.Sequential(
+            nn.Conv2d(2 * channels, hidden_dim, kernel_size=1),
             nn.BatchNorm2d(hidden_dim),
             nn.GELU(),
             nn.Conv2d(hidden_dim, channels, kernel_size=1),
             nn.Sigmoid(),
         )
         self.out_proj = nn.Conv2d(channels, channels, kernel_size=1)
+        self.alpha = nn.Parameter(torch.zeros(1))
 
     def forward(self, f_spa, f_spe):
-        # f_spa, f_spe: [B, C, H, W]
-        weights = self.spa_to_gate(f_spa)  # [B, C, H, W] in [0,1]
-        f_spe_guided = f_spe + weights * f_spe
+        if f_spa.dim() != 4:
+            raise ValueError(f"Expected 4D input, got {f_spa.dim()}D")
+        if f_spa.shape != f_spe.shape:
+            raise ValueError(
+                f"Shape mismatch: f_spa {list(f_spa.shape)} vs f_spe {list(f_spe.shape)}"
+            )
+        control_input = torch.cat([f_spa, f_spe], dim=1)      # [B, 2C, H, W]
+        c = self.control(control_input)                       # [B, C, H, W] in [0,1]
+        f_spe_guided = f_spe + self.alpha * c * f_spe
         f_spe_guided = self.out_proj(f_spe_guided)
         return f_spe_guided
 
