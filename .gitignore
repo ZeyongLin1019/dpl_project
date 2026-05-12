@@ -29,6 +29,19 @@ extracted_ckpt/
 .vscode/
 .idea/
 
+# Training outputs
+RUNS/
+RUNS_*/
+logs/
+*.log
+
+# HSI data (large binary files)
+*.mat
+*.npy
+*.enp
+*.hdr
+*.raw
+
 # OS
 .DS_Store
 Thumbs.db
