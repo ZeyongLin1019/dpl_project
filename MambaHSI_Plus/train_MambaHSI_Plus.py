@@ -43,6 +43,16 @@ def setup_seed(seed):
 
 
 def get_parser():
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_index', type=int,default=0)
     parser.add_argument('--data_set_path',type=str,default='./data')
@@ -53,6 +63,8 @@ def get_parser():
     parser.add_argument('--val_samples', type=int, default=10)
     parser.add_argument('--exp_name', type=str, default='RUNS')
     parser.add_argument('--record_computecost',type=bool,default=True)
+    parser.add_argument('--use_s2s_fusion', type=str2bool, default=True,
+                        help='Enable Spatial-to-Spectral gate (set False for ablation)')
 
     args = parser.parse_args()
     return args
@@ -75,8 +87,11 @@ learning_rate = args.lr
 
 net_name = 'MambaHSI_Plus'
 
+use_s2s_fusion = args.use_s2s_fusion
+
 paras_dict = {'net_name':net_name,'dataset_index':dataset_index,'num_list':num_list,
-              'lr':learning_rate,'seed_list':seed_list}
+              'lr':learning_rate,'seed_list':seed_list,
+              'use_s2s_fusion': use_s2s_fusion}
 
 
                       # 0        1         2         3        4
@@ -177,7 +192,7 @@ if __name__ == '__main__':
         print(x.shape)
         x = x.to(device)
         # build Model
-        net = MambaHSI_Plus(in_channels=channels, num_classes=class_count)
+        net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion)
         logger.info(paras_dict)
         logger.info(net)
         
@@ -327,7 +342,7 @@ if __name__ == '__main__':
         load_weight_path = save_weight_path
         net.update_params = None
         # best_net = copy.deepcopy(net)
-        best_net = MambaHSI_Plus(in_channels=channels, num_classes=class_count)
+        best_net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion)
 
         best_net.to(device)
         best_net.load_state_dict(torch.load(load_weight_path))

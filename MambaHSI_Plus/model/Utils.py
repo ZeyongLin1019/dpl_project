@@ -69,6 +69,36 @@ class SpeMambaProcessor(nn.Module):
         x_proc_flipped = torch.flip(self.mamba(x_flipped), dims=[1])
         return x_proc.view(*x.shape) + x_proc_flipped.view(*x.shape)
 
+class SpatialGuidedSpectralFusion(nn.Module):
+    """
+    Spatial-to-Spectral Gate (Im2State-inspired cross-state fusion).
+
+    Uses spatial branch features to generate control weights that modulate
+    spectral branch features, then projects the result.
+
+    Input:  f_spa [B, C, H, W], f_spe [B, C, H, W]
+    Output: f_spe_guided [B, C, H, W]
+    """
+    def __init__(self, channels, reduction=4):
+        super().__init__()
+        hidden_dim = max(1, channels // reduction)
+        self.spa_to_gate = nn.Sequential(
+            nn.Conv2d(channels, hidden_dim, kernel_size=1),
+            nn.BatchNorm2d(hidden_dim),
+            nn.GELU(),
+            nn.Conv2d(hidden_dim, channels, kernel_size=1),
+            nn.Sigmoid(),
+        )
+        self.out_proj = nn.Conv2d(channels, channels, kernel_size=1)
+
+    def forward(self, f_spa, f_spe):
+        # f_spa, f_spe: [B, C, H, W]
+        weights = self.spa_to_gate(f_spa)  # [B, C, H, W] in [0,1]
+        f_spe_guided = f_spe + weights * f_spe
+        f_spe_guided = self.out_proj(f_spe_guided)
+        return f_spe_guided
+
+
 class CustomAttention(nn.Module):
     def __init__(self, embed_dim=32, num_heads=4):
         super().__init__()
