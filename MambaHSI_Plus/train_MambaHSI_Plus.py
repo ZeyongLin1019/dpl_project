@@ -69,6 +69,8 @@ def get_parser():
                         help='Enable Spectral-to-Spatial gate (V3)')
     parser.add_argument('--use_dynamic_fusion', type=str2bool, default=False,
                         help='Enable Dynamic Fusion Router (V4)')
+    parser.add_argument('--use_sgsr_fusion', type=str2bool, default=False,
+                        help='Enable Spectral-Guided Spatial Residual (V5)')
 
     args = parser.parse_args()
     return args
@@ -94,12 +96,14 @@ net_name = 'MambaHSI_Plus'
 use_s2s_fusion = args.use_s2s_fusion
 use_s2p_fusion = args.use_s2p_fusion
 use_dynamic_fusion = args.use_dynamic_fusion
+use_sgsr_fusion = args.use_sgsr_fusion
 
 paras_dict = {'net_name':net_name,'dataset_index':dataset_index,'num_list':num_list,
               'lr':learning_rate,'seed_list':seed_list,
               'use_s2s_fusion': use_s2s_fusion,
               'use_s2p_fusion': use_s2p_fusion,
-              'use_dynamic_fusion': use_dynamic_fusion}
+              'use_dynamic_fusion': use_dynamic_fusion,
+              'use_sgsr_fusion': use_sgsr_fusion}
 
 
                       # 0        1         2         3        4
@@ -200,7 +204,7 @@ if __name__ == '__main__':
         print(x.shape)
         x = x.to(device)
         # build Model
-        net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion)
+        net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion, use_sgsr_fusion=use_sgsr_fusion)
         logger.info(paras_dict)
         logger.info(net)
         
@@ -350,7 +354,7 @@ if __name__ == '__main__':
         load_weight_path = save_weight_path
         net.update_params = None
         # best_net = copy.deepcopy(net)
-        best_net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion)
+        best_net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion, use_sgsr_fusion=use_sgsr_fusion)
 
         best_net.to(device)
         best_net.load_state_dict(torch.load(load_weight_path))

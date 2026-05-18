@@ -6,6 +6,7 @@ import numpy as np
 from mamba_ssm import Mamba
 from .Utils import ECALayer, SpeMambaProcessor, SpaMambaProcessor, SpatialGuidedSpectralFusion, SpectralGuidedSpatialFusion
 from .DynamicFusionRouter import DynamicFusionRouter
+from .SpectralGuidedSpatialResidual import SpectralGuidedSpatialResidual
 
 class SpeMamba(nn.Module):
     def __init__(self, channels, token_num=8, use_residual=True, group_num=4, use_proj=True, use_att=True):
@@ -122,13 +123,15 @@ class SpaMamba(nn.Module):
 
 class BothMamba(nn.Module):
     def __init__(self, channels, token_num, use_residual=True, group_num=4, use_att=False,
-                 use_s2s_fusion=True, use_s2p_fusion=False, use_dynamic_fusion=False):
+                 use_s2s_fusion=True, use_s2p_fusion=False, use_dynamic_fusion=False,
+                 use_sgsr_fusion=False):
         super(BothMamba, self).__init__()
         self.use_att = use_att
         self.use_residual = use_residual
         self.use_s2s_fusion = use_s2s_fusion
         self.use_s2p_fusion = use_s2p_fusion
         self.use_dynamic_fusion = use_dynamic_fusion
+        self.use_sgsr_fusion = use_sgsr_fusion
 
         if self.use_att:
             self.weights = nn.Parameter(torch.ones(2) / 2)
@@ -143,6 +146,8 @@ class BothMamba(nn.Module):
             self.s2p_fusion = SpectralGuidedSpatialFusion(channels)
         if self.use_dynamic_fusion:
             self.dynamic_fusion_router = DynamicFusionRouter(channels)
+        if self.use_sgsr_fusion:
+            self.sgsr_fusion = SpectralGuidedSpatialResidual(channels)
 
     def forward(self, x):
         spa_x = self.spa_mamba(x)
@@ -150,6 +155,8 @@ class BothMamba(nn.Module):
 
         if self.use_dynamic_fusion:
             fusion_x, _route_weights = self.dynamic_fusion_router(spa_x, spe_x)
+        elif self.use_sgsr_fusion:
+            fusion_x = self.sgsr_fusion(spa_x, spe_x)
         else:
             if self.use_s2s_fusion:
                 spe_x = self.s2s_fusion(spa_x, spe_x)
@@ -179,12 +186,14 @@ class MambaHSI_Plus(nn.Module):
         use_s2s_fusion=True,       # <-- ablation switch: set False to disable Spatial-to-Spectral gate
         use_s2p_fusion=False,      # <-- Spectral-to-Spatial gate (V3)
         use_dynamic_fusion=False,  # <-- Dynamic Fusion Router (V4)
+        use_sgsr_fusion=False,     # <-- Spectral-Guided Spatial Residual (V5)
     ):
         super(MambaHSI_Plus, self).__init__()
         self.mamba_type = mamba_type
         self.use_s2s_fusion = use_s2s_fusion
         self.use_s2p_fusion = use_s2p_fusion
         self.use_dynamic_fusion = use_dynamic_fusion
+        self.use_sgsr_fusion = use_sgsr_fusion
 
 
         self.patch_embedding = nn.Sequential(nn.Conv2d(in_channels=in_channels,out_channels=hidden_dim,kernel_size=1,stride=1,padding=0),
@@ -194,11 +203,11 @@ class MambaHSI_Plus(nn.Module):
 
 
         self.mamba = nn.Sequential(
-            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion),
+            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion, use_sgsr_fusion=use_sgsr_fusion),
             nn.AvgPool2d(kernel_size=2, stride=2),
-            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion),
+            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion, use_sgsr_fusion=use_sgsr_fusion),
             nn.AvgPool2d(kernel_size=2, stride=2),
-            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion),
+            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion, use_sgsr_fusion=use_sgsr_fusion),
         )
 
         
