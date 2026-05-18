@@ -65,6 +65,10 @@ def get_parser():
     parser.add_argument('--record_computecost',type=bool,default=True)
     parser.add_argument('--use_s2s_fusion', type=str2bool, default=True,
                         help='Enable Spatial-to-Spectral gate (set False for ablation)')
+    parser.add_argument('--use_s2p_fusion', type=str2bool, default=False,
+                        help='Enable Spectral-to-Spatial gate (V3)')
+    parser.add_argument('--use_dynamic_fusion', type=str2bool, default=False,
+                        help='Enable Dynamic Fusion Router (V4)')
 
     args = parser.parse_args()
     return args
@@ -74,7 +78,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 args = get_parser()
 record_computecost = args.record_computecost
 exp_name = args.exp_name
-seed_list = [0,1,2,3,4,5,6,7,8,9]  #
+seed_list = [0,1,2]  # [0,1,2,3,4,5,6,7,8,9]
 # seed_list = [9]  #
 # seed_list = [5,6,7,8,9]  #
 
@@ -88,10 +92,14 @@ learning_rate = args.lr
 net_name = 'MambaHSI_Plus'
 
 use_s2s_fusion = args.use_s2s_fusion
+use_s2p_fusion = args.use_s2p_fusion
+use_dynamic_fusion = args.use_dynamic_fusion
 
 paras_dict = {'net_name':net_name,'dataset_index':dataset_index,'num_list':num_list,
               'lr':learning_rate,'seed_list':seed_list,
-              'use_s2s_fusion': use_s2s_fusion}
+              'use_s2s_fusion': use_s2s_fusion,
+              'use_s2p_fusion': use_s2p_fusion,
+              'use_dynamic_fusion': use_dynamic_fusion}
 
 
                       # 0        1         2         3        4
@@ -192,7 +200,7 @@ if __name__ == '__main__':
         print(x.shape)
         x = x.to(device)
         # build Model
-        net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion)
+        net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion)
         logger.info(paras_dict)
         logger.info(net)
         
@@ -342,7 +350,7 @@ if __name__ == '__main__':
         load_weight_path = save_weight_path
         net.update_params = None
         # best_net = copy.deepcopy(net)
-        best_net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion)
+        best_net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion)
 
         best_net.to(device)
         best_net.load_state_dict(torch.load(load_weight_path))

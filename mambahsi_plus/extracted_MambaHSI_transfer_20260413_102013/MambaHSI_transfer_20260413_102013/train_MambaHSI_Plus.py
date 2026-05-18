@@ -108,11 +108,31 @@ class SegLoss(nn.Module):
         return ce_valid.mean()
 
 
-def forward_in_chunks(net, x_cpu, device, num_chunks):
+def forward_in_chunks(net, x_cpu, device, num_chunks, overlap_margin=16):
+    """
+    Process a large image in overlapping chunks to avoid boundary artifacts
+    caused by strided pooling (3x AvgPool2d kernel=2 stride=2 = 8x downsample).
+
+    overlap_margin: input rows padded on each side of each chunk (crop back at output)
+    """
+    H = x_cpu.shape[2]
+    # margin in output space (1/8 scale)
+    crop_out = overlap_margin // 8
     chunk_outputs = []
-    for start, end in get_chunk_ranges(x_cpu.shape[2], num_chunks):
-        x_part = x_cpu[:, :, start:end, :].to(device, non_blocking=True)
-        y_pred_part = net(x_part)
+    for start, end in get_chunk_ranges(H, num_chunks):
+        # pad chunk with context rows (except at image edges)
+        s_pad = max(0, start - overlap_margin)
+        e_pad = min(H, end + overlap_margin)
+        x_part = x_cpu[:, :, s_pad:e_pad, :].to(device, non_blocking=True)
+        y_pred_part = net(x_part)  # [B, C, H_out, W]
+
+        # crop output to remove padding contribution
+        # padding rows at input → padding/8 rows at output
+        pad_top_out = (start - s_pad) // 8
+        pad_bot_out = (e_pad - end) // 8
+        if pad_top_out > 0 or pad_bot_out > 0:
+            y_pred_part = y_pred_part[:, :, pad_top_out:y_pred_part.shape[2] - pad_bot_out, :]
+
         chunk_outputs.append(y_pred_part)
         del x_part
     return torch.cat(chunk_outputs, dim=2)
@@ -155,6 +175,7 @@ def get_parser():
     parser.add_argument('--alpha_recon', type=float, default=0.1)
     parser.add_argument('--lambda_sam', type=float, default=0.5)
     parser.add_argument('--lambda_l2', type=float, default=0.03)
+    parser.add_argument('--use_s2s_fusion', type=str2bool, default=True)
 
     args = parser.parse_args()
     return args
@@ -165,6 +186,9 @@ args = get_parser()
 record_computecost = args.record_computecost
 exp_name = args.exp_name
 custom_npy_chunks = max(1, args.custom_npy_chunks)
+# Use fewer chunks for eval to avoid strided-pool boundary artifacts
+# n=4 ensures output rows match full-image processing exactly
+custom_npy_chunks_eval = max(1, custom_npy_chunks // 8)
 use_amp = bool(args.use_amp and torch.cuda.is_available())
 early_stop_patience = max(0, int(args.early_stop_patience))
 early_stop_min_delta = max(0.0, float(args.early_stop_min_delta))
@@ -178,6 +202,7 @@ use_spectral_recon = bool(args.use_spectral_recon)
 alpha_recon = float(args.alpha_recon)
 lambda_sam = float(args.lambda_sam)
 lambda_l2 = float(args.lambda_l2)
+use_s2s_fusion = bool(args.use_s2s_fusion)
 all_seed_list = [0,1,2,3,4,5,6,7,8,9]
 seed_start = min(max(0, int(args.seed_start)), len(all_seed_list) - 1)
 seed_list = all_seed_list[seed_start:]
@@ -202,7 +227,8 @@ paras_dict = {'net_name':net_name,'dataset_index':dataset_index,'num_list':num_l
               'use_spectral_recon': use_spectral_recon,
               'alpha_recon': alpha_recon,
               'lambda_sam': lambda_sam,
-              'lambda_l2': lambda_l2}
+              'lambda_l2': lambda_l2,
+              'use_s2s_fusion': use_s2s_fusion}
 
 
                       # 0        1         2         3        4
@@ -326,7 +352,7 @@ if __name__ == '__main__':
         if not is_custom_npy:
             x = x.to(device)
         # build Model
-        net = MambaHSI_Plus(in_channels=channels, num_classes=class_count)
+        net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, use_s2s_fusion=use_s2s_fusion)
         logger.info(paras_dict)
         logger.info(net)
         
@@ -657,7 +683,7 @@ if __name__ == '__main__':
                 evaluator.reset()
                 if is_custom_npy:
                     with torch.cuda.amp.autocast(enabled=use_amp):
-                        output_val = forward_in_chunks(net, x, device, custom_npy_chunks)
+                        output_val = forward_in_chunks(net, x, device, custom_npy_chunks_eval)
                 else:
                     output_val = net(x)
                 y_val = val_label.unsqueeze(0)
@@ -706,7 +732,7 @@ if __name__ == '__main__':
         load_weight_path = save_weight_path
         net.update_params = None
         # best_net = copy.deepcopy(net)
-        best_net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, hidden_dim=128)
+        best_net = MambaHSI_Plus(in_channels=channels, num_classes=class_count, hidden_dim=128, use_s2s_fusion=use_s2s_fusion)
 
         best_net.to(device)
         best_net.load_state_dict(torch.load(load_weight_path))
@@ -716,7 +742,7 @@ if __name__ == '__main__':
             test_evaluator.reset()
             if is_custom_npy:
                 with torch.cuda.amp.autocast(enabled=use_amp):
-                    output_test = forward_in_chunks(best_net, x, device, custom_npy_chunks)
+                    output_test = forward_in_chunks(best_net, x, device, custom_npy_chunks_eval)
             else:
                 output_test = best_net(x)
 

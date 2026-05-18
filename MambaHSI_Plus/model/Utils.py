@@ -106,6 +106,42 @@ class SpatialGuidedSpectralFusion(nn.Module):
         return f_spe_guided
 
 
+class SpectralGuidedSpatialFusion(nn.Module):
+    """
+    Spectral-to-Spatial Fusion (S2P): spectral features gate spatial features.
+
+    Uses spectral branch features to generate control weights that modulate
+    the spatial branch output via a learnable alpha (init 0 = identity).
+
+    Input:  f_spa [B, C, H, W], f_spe [B, C, H, W]
+    Output: f_spa_guided [B, C, H, W]
+    """
+    def __init__(self, channels, reduction=4):
+        super().__init__()
+        hidden_dim = max(1, channels // reduction)
+        self.control = nn.Sequential(
+            nn.Conv2d(channels, hidden_dim, kernel_size=1),
+            nn.BatchNorm2d(hidden_dim),
+            nn.GELU(),
+            nn.Conv2d(hidden_dim, channels, kernel_size=1),
+            nn.Sigmoid(),
+        )
+        self.out_proj = nn.Conv2d(channels, channels, kernel_size=1)
+        self.alpha = nn.Parameter(torch.zeros(1))
+
+    def forward(self, f_spa, f_spe):
+        if f_spa.dim() != 4:
+            raise ValueError(f"Expected 4D input, got {f_spa.dim()}D")
+        if f_spa.shape != f_spe.shape:
+            raise ValueError(
+                f"Shape mismatch: f_spa {list(f_spa.shape)} vs f_spe {list(f_spe.shape)}"
+            )
+        gate = self.control(f_spe)      # [B, C, H, W] in [0,1], spectral→spatial
+        f_spa_guided = f_spa + self.alpha * gate * f_spa
+        f_spa_guided = self.out_proj(f_spa_guided)
+        return f_spa_guided
+
+
 class CustomAttention(nn.Module):
     def __init__(self, embed_dim=32, num_heads=4):
         super().__init__()

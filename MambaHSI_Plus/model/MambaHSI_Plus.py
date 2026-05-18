@@ -4,7 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from mamba_ssm import Mamba
-from .Utils import ECALayer, SpeMambaProcessor, SpaMambaProcessor, SpatialGuidedSpectralFusion
+from .Utils import ECALayer, SpeMambaProcessor, SpaMambaProcessor, SpatialGuidedSpectralFusion, SpectralGuidedSpatialFusion
+from .DynamicFusionRouter import DynamicFusionRouter
 
 class SpeMamba(nn.Module):
     def __init__(self, channels, token_num=8, use_residual=True, group_num=4, use_proj=True, use_att=True):
@@ -121,11 +122,13 @@ class SpaMamba(nn.Module):
 
 class BothMamba(nn.Module):
     def __init__(self, channels, token_num, use_residual=True, group_num=4, use_att=False,
-                 use_s2s_fusion=True):
+                 use_s2s_fusion=True, use_s2p_fusion=False, use_dynamic_fusion=False):
         super(BothMamba, self).__init__()
         self.use_att = use_att
         self.use_residual = use_residual
         self.use_s2s_fusion = use_s2s_fusion
+        self.use_s2p_fusion = use_s2p_fusion
+        self.use_dynamic_fusion = use_dynamic_fusion
 
         if self.use_att:
             self.weights = nn.Parameter(torch.ones(2) / 2)
@@ -134,17 +137,25 @@ class BothMamba(nn.Module):
         self.spa_mamba = SpaMamba(channels, use_residual=use_residual, group_num=group_num)
         self.spe_mamba = SpeMamba(channels, token_num=token_num, use_residual=use_residual, group_num=group_num)
 
-        if self.use_s2s_fusion:
+        if self.use_s2s_fusion and not self.use_dynamic_fusion:
             self.s2s_fusion = SpatialGuidedSpectralFusion(channels)
+        if self.use_s2p_fusion and not self.use_dynamic_fusion:
+            self.s2p_fusion = SpectralGuidedSpatialFusion(channels)
+        if self.use_dynamic_fusion:
+            self.dynamic_fusion_router = DynamicFusionRouter(channels)
 
     def forward(self, x):
         spa_x = self.spa_mamba(x)
         spe_x = self.spe_mamba(x)
 
-        if self.use_s2s_fusion:
-            spe_x = self.s2s_fusion(spa_x, spe_x)
-
-        fusion_x = spa_x + spe_x
+        if self.use_dynamic_fusion:
+            fusion_x, _route_weights = self.dynamic_fusion_router(spa_x, spe_x)
+        else:
+            if self.use_s2s_fusion:
+                spe_x = self.s2s_fusion(spa_x, spe_x)
+            if self.use_s2p_fusion:
+                spa_x = self.s2p_fusion(spa_x, spe_x)
+            fusion_x = spa_x + spe_x
 
         if self.use_residual:
             return fusion_x + x
@@ -165,25 +176,29 @@ class MambaHSI_Plus(nn.Module):
         token_num=4,
         group_num=2,
         use_att=True,
-        use_s2s_fusion=True,   # <-- ablation switch: set False to disable Spatial-to-Spectral gate
+        use_s2s_fusion=True,       # <-- ablation switch: set False to disable Spatial-to-Spectral gate
+        use_s2p_fusion=False,      # <-- Spectral-to-Spatial gate (V3)
+        use_dynamic_fusion=False,  # <-- Dynamic Fusion Router (V4)
     ):
         super(MambaHSI_Plus, self).__init__()
         self.mamba_type = mamba_type
         self.use_s2s_fusion = use_s2s_fusion
+        self.use_s2p_fusion = use_s2p_fusion
+        self.use_dynamic_fusion = use_dynamic_fusion
 
-        
+
         self.patch_embedding = nn.Sequential(nn.Conv2d(in_channels=in_channels,out_channels=hidden_dim,kernel_size=1,stride=1,padding=0),
                                              nn.GroupNorm(group_num,hidden_dim),
                                              nn.SiLU())
 
 
-        
+
         self.mamba = nn.Sequential(
-            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion),
+            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion),
             nn.AvgPool2d(kernel_size=2, stride=2),
-            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion),
+            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion),
             nn.AvgPool2d(kernel_size=2, stride=2),
-            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion),
+            BothMamba(channels=hidden_dim, token_num=token_num, use_residual=use_residual, group_num=group_num, use_att=use_att, use_s2s_fusion=use_s2s_fusion, use_s2p_fusion=use_s2p_fusion, use_dynamic_fusion=use_dynamic_fusion),
         )
 
         
